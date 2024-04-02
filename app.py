@@ -1,103 +1,113 @@
+# Python In-built packages
+from pathlib import Path
+import PIL
+
+# External packages
 import streamlit as st
-import tensorflow as tf
-#from tensorflow import keras
-import random
-from PIL import Image, ImageOps
-import numpy as np
 
-import warnings
-warnings.filterwarnings("ignore")
+# Local Modules
+import settings
+import helper
 
-
+# Setting page layout
 st.set_page_config(
-    page_title="Tire Quality Detection",
-    page_icon = ":car:",
-    initial_sidebar_state = 'auto'
+    page_title="Tire Damage Segmentation",
+    page_icon="🚗",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
-hide_streamlit_style = """
-            <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            </style>
-            """
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# Main page heading
+st.title("Tire Defect and Damage Segmentation")
+st.markdown('''**NOTE: This model is not to be used to detect tire damage presence but only for finding and displaying the area of damage**''')
+
+#Logo
+st.sidebar.image("logo-normal.png")
 
 
-with st.sidebar:
-        st.image('mg.png')
-        st.title("Tire Quality Detection")
-        st.write("This software accurately detects the quality of tires of any vehicle.")
+# Model Options
+#model_type = st.sidebar.radio(
+    #"Task Type:", ['Segmentation'])
 
-        st.sidebar.info("The detection is performed with the help of MobileNet V3 and is faster and lighter than its competitors")
+confidence = float(st.sidebar.slider(
+    "Select Model Confidence", 25, 100, 40)) / 100
 
-             
-        
-def prediction_cls(prediction):
-    for key, clss in class_names.items():
-        if np.argmax(prediction)==clss:
-            
-            return key
-        
-       
+# # Selecting Detection Or Segmentation
+# if model_type == 'Detection':
+#     model_path = Path(settings.DETECTION_MODEL)
+#if model_type == 'Segmentation':
+model_path = Path(settings.SEGMENTATION_MODEL)
 
-    
+# Load Pre-trained ML Model
+try:
+    model = helper.load_model(model_path)
+except Exception as ex:
+    st.error(f"Unable to load model. Check the specified path: {model_path}")
+    st.error(ex)
 
-st.set_option('deprecation.showfileUploaderEncoding', False)
-@st.cache(allow_output_mutation=True)
-def load_model():
-    model=tf.keras.models.load_model('tire.h5')
-    return model
-with st.spinner('Model is being loaded..'):
-    model=load_model()
-    #model = keras.Sequential()
-    #model.add(keras.layers.Input(shape=(224, 224, 4)))
-    
+st.sidebar.header("Choose any Image")
+source_radio = st.sidebar.radio(
+    "Source Type", settings.SOURCES_LIST)
 
-st.write("""
-         # Tire Quality Detection
-         """
-         )
+source_img = None
+# If image is selected
+if source_radio == settings.IMAGE:
+    source_img = st.sidebar.file_uploader(
+        "Choose an image...", type=("jpg", "jpeg", "png", 'bmp', 'webp'))
 
-file = st.file_uploader("", type=["jpg", "png"])
-def import_and_predict(image_data, model):
-        size = (224,224)    
-        image = ImageOps.fit(image_data, size, Image.Resampling.LANCZOS)
-        img = np.asarray(image)
-        img_reshape = img[np.newaxis,...]
-        prediction = model.predict(img_reshape)
-        return prediction
+    col1, col2 = st.columns(2)
 
+    with col1:
+        try:
+            if source_img is None:
+                default_image_path = str(settings.DEFAULT_IMAGE)
+                default_image = PIL.Image.open(default_image_path)
+                st.image(default_image_path, caption="Default Image",
+                         use_column_width=True)
+            else:
+                uploaded_image = PIL.Image.open(source_img)
+                st.image(source_img, caption="Uploaded Image",
+                         use_column_width=True)
+        except Exception as ex:
+            st.error("Error occurred while opening the image.")
+            st.error(ex)
 
-        
-if file is None:
-    st.text("Please upload an image file")
+    with col2:
+        if source_img is None:
+            default_detected_image_path = str(settings.DEFAULT_DETECT_IMAGE)
+            default_detected_image = PIL.Image.open(
+                default_detected_image_path)
+            st.image(default_detected_image_path, caption='Detected Image',
+                     use_column_width=True)
+        else:
+            if st.sidebar.button('Detect Damage'):
+                res = model.predict(uploaded_image,
+                                    conf=confidence
+                                    )
+                boxes = res[0].boxes
+                res_plotted = res[0].plot()[:, :, ::-1]
+                st.image(res_plotted, caption='Detected Image',
+                         use_column_width=True)
+                try:
+                    with st.expander("Detection Results"):
+                        for box in boxes:
+                            st.write('The array of detected pixels')
+                            st.write(box.data)
+                except Exception as ex:
+                    # st.write(ex)
+                    st.write("No image is uploaded yet!")
+
+# elif source_radio == settings.VIDEO:
+#     helper.play_stored_video(confidence, model)
+
+# elif source_radio == settings.WEBCAM:
+#     helper.play_webcam(confidence, model)
+
+# elif source_radio == settings.RTSP:
+#     helper.play_rtsp_stream(confidence, model)
+
+# elif source_radio == settings.YOUTUBE:
+#     helper.play_youtube_video(confidence, model)
+
 else:
-    image = Image.open(file)
-    st.image(image, use_column_width=True)
-    predictions = import_and_predict(image, model)
-    x = random.randint(98,99)+ random.randint(0,99)*0.01
-    st.sidebar.error("Accuracy : " + str(x) + " %")
-
-    class_names = ['defective', 'good']
-
-
-    string = "Detected Result : " + class_names[np.argmax(predictions)]
-    if class_names[np.argmax(predictions)] == 'good':
-        st.balloons()
-        st.success("Its time for a long drive! 😎🚗")
-        st.sidebar.success(string)
-
-    elif class_names[np.argmax(predictions)] == 'defective':
-        st.sidebar.warning(string)
-        st.sidebar.success("Kindly scroll to page bottom for inference")
-        st.snow()
-        st.markdown("## Inference")
-        st.info("The tire is detected to be worn out. Kindly consider checking the regions of damage with out application and get it fixed before you sit on the road.")
-
-
-        st.markdown(
-        f'<a href="https://tire-and-damage.streamlit.app/" target="_blank" style="display: inline-block; padding: 12px 20px; background-color: black; color: white; text-align: center; text-decoration: none; font-size: 16px; border-radius: 4px;">Tire Damage Segmentation</a>',
-        unsafe_allow_html=True)
-
-with st.expander("Check sample data source"):
-            st.markdown(f'<a href="https://www.kaggle.com/datasets/warcoder/tyre-quality-classification/data" target="_blank" style="display: inline-block; padding: 12px 20px; background-color: black; color: white; text-align: center; text-decoration: none; font-size: 16px; border-radius: 4px;">Sample Dataset</a>', unsafe_allow_html=True)  
+    st.error("Please select a valid source type!")
